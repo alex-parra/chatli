@@ -1,6 +1,7 @@
-# Go Chatli
+# Chatli
 
-ChatGPT in your terminal, with your own API key, written in Go.
+ChatGPT in your terminal, with your own API key, written in Go.  
+Created by Alex Parra · https://linkedin.com/in/alexpds
 
 ## Usage
 1. Run `go install github.com/alex-parra/chatli@latest`
