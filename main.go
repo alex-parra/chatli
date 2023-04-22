@@ -1,10 +1,11 @@
 package main
 
 import (
-	"chat-go/internal"
 	"context"
 	"log"
 	"os/user"
+
+	"github.com/alex-parra/chatli/internal"
 )
 
 func main() {
