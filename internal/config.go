@@ -18,7 +18,7 @@ var Config config = config{
 
 	SessionTokensThreshold: 500,
 	ModelMaxTokens: map[string]int{
-		openai.GPT3Dot5Turbo: 1096,
+		openai.GPT3Dot5Turbo: 4096,
 		openai.GPT4:          8192,
 	},
 }
