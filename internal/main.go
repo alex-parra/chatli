@@ -7,39 +7,55 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/sashabaranov/go-openai"
 )
 
-func Run(ctx context.Context, openAiKey string) {
-	if openAiKey == "" {
+const cmdNewSession = "/new"
+const cmdQuit = "/q"
+
+func Startup() {
+	shClear()
+	fmt.Println()
+	fmt.Println(shColor("yellow:bold", Config.AppName))
+	fmt.Println("Created by", shColor("green", Config.CreatedBy), "·", Config.CreatedByLinks[0], "·", Config.CreatedByLinks[1])
+	fmt.Println()
+	fmt.Println(shColor("gray", "-------------"))
+	fmt.Println()
+}
+
+func Chat(ctx context.Context, openAIKey string) {
+	if openAIKey == "" {
 		shError("Error", fmt.Errorf("OpenAI key missing"))
 		return
 	}
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-	go shutdown(signalChannel)
+	go func() { <-signalChannel; shutdown() }()
 
-	c := openai.NewClient(openAiKey)
+	c := openai.NewClient(openAIKey)
 	model := openai.GPT3Dot5Turbo
-	session := startSession()
+	session := startSession(model)
 
 	for {
 		userInput := shAsk("", false)
 
-		if userInput == "new-session" {
-			session = startSession()
+		if userInput == cmdQuit {
+			shutdown()
+		}
+
+		if userInput == cmdNewSession {
+			session = startSession(model)
 			continue
 		}
 
-		session = append(session, userMsg(userInput))
-		req := openai.ChatCompletionRequest{Model: model, Stream: true, Messages: session}
+		session = append(session, userMsg(model, userInput))
+		req := openai.ChatCompletionRequest{Model: model, Stream: true, Messages: chatMsgsToOpenAIMsgs(session)}
 		stream, err := c.CreateChatCompletionStream(ctx, req)
 		if err != nil {
-			shError("Error", fmt.Errorf("failed to connect to OpenAi: %w", err))
+			shError("Error", fmt.Errorf("failed to connect to OpenAI: %w", err))
 			session = session[:len(session)-1] // remove last question from session
 			continue
 		}
@@ -47,9 +63,9 @@ func Run(ctx context.Context, openAiKey string) {
 
 		fmt.Println(shColor("gray", "---"))
 
-		fullResponse := ""
+		completeResponse := ""
 		for {
-			response, err := stream.Recv()
+			res, err := stream.Recv()
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					shError("Error", fmt.Errorf("failed getting response: %w", err))
@@ -57,52 +73,42 @@ func Run(ctx context.Context, openAiKey string) {
 				break
 			}
 
-			fullResponse += response.Choices[0].Delta.Content
-			fmt.Print(response.Choices[0].Delta.Content)
+			completeResponse += res.Choices[0].Delta.Content
+			fmt.Print(res.Choices[0].Delta.Content)
 		}
 
-		session = append(session, assistantMsg(fullResponse))
+		session = append(session, agentMsg(model, completeResponse))
+		tokens := countSessionTokens(session)
 
 		fmt.Print("\n\n")
-		fmt.Println(shColor("whitesmoke", "- Tokens: %d -", countTokens(session, model)), shColor("gray", "   (type 'new-session' to clear context | CTRL+C to quit)"))
+		fmt.Println(shColor("whitesmoke", "- Tokens: %d -", tokens), "  ", shColor("gray", "(enter '%s' to clear context or '%s' to quit)", cmdNewSession, cmdQuit))
+
+		if Config.ModelMaxTokens[model]-tokens <= Config.SessionTokensThreshold {
+			fmt.Println(" ", shColor("gray", "Reaching max tokens: deleting the oldest message from context."))
+			session = append(session[0:1], session[2:]...)
+		}
+
 		fmt.Println("")
 	} // loop
 }
 
 // Helpers ------------------------------------
 
-func startSession() []openai.ChatCompletionMessage {
+func startSession(model string) []ChatMsg {
 	shClear()
 	fmt.Println()
-	fmt.Println(shColor("yellow:bold", "What do you want to talk about?"), shColor("whitesmoke", "   (type CTRL+C to quit)"))
+	fmt.Println("👋 Welcome to", Config.AppName)
+	fmt.Println(shColor("gray", "-------------"))
+	fmt.Println(shColor("yellow:bold", "What do you want to talk about?"), "  ", shColor("gray", "(enter '%s' to quit)", cmdQuit))
 
-	introMsg := systemMsg(strings.TrimSpace(`
-You have access to most of human knowledge and are very pleased to assist in uncovering the correct and detailed answers for the topics you're asked about.
-User will ask questions seeking concise and accurate responses
-	`))
-
-	return []openai.ChatCompletionMessage{introMsg}
+	return []ChatMsg{introMsg(model)}
 }
 
-func systemMsg(q string) openai.ChatCompletionMessage {
-	return openai.ChatCompletionMessage{Role: openai.ChatMessageRoleSystem, Content: q}
-}
-
-func userMsg(q string) openai.ChatCompletionMessage {
-	return openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: q}
-}
-
-func assistantMsg(q string) openai.ChatCompletionMessage {
-	return openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: q}
-}
-
-func shutdown(signalChannel chan os.Signal) {
-	<-signalChannel
-
+func shutdown() {
 	fmt.Println()
 	fmt.Println(shColor("gray", "-------------"))
-	fmt.Println(shColor("whitesmoke", "Thank you for using ChatGo"))
-	fmt.Println("Created by", shColor("green", "Alex Parra · github.com/alex-parra"))
+	fmt.Println(shColor("whitesmoke", "Thank you for using %s", Config.AppName))
+	fmt.Println("Created by", shColor("green", Config.CreatedBy), "·", Config.CreatedByLinks[0], "·", Config.CreatedByLinks[1])
 
 	os.Exit(0)
 }

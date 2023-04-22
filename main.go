@@ -3,14 +3,24 @@ package main
 import (
 	"chat-go/internal"
 	"context"
-	"os"
-
-	_ "github.com/joho/godotenv/autoload"
+	"log"
+	"os/user"
 )
 
 func main() {
-	openAiKey := os.Getenv("OPENAI_API_KEY")
 	ctx := context.Background()
 
-	internal.Run(ctx, openAiKey)
+	internal.Startup()
+
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	openAIKey, err := internal.GetOpenAIKey(currentUser.Uid)
+	if err != nil {
+		log.Fatal("Failed getting OpenAI key")
+	}
+
+	internal.Chat(ctx, openAIKey)
 }
